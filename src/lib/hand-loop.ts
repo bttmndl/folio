@@ -34,6 +34,9 @@ type FingerMem = {
   armed: string | null;
   zHist: number[];
   yHist: number[];
+  sx: number;
+  sy: number;
+  travel: number;
 };
 
 const FINGERS = [
@@ -258,14 +261,20 @@ function paint(
             armed: null,
             zHist: [],
             yHist: [],
+            sx: tip.x,
+            sy: tip.y,
+            travel: 0,
           };
           ctx.mem.set(id, row);
         }
         const jump = Math.hypot(tip.x - row.x, tip.y - row.y);
         row.x = tip.x;
         row.y = tip.y;
-        const board = applyH(toBoard, { x: tip.x, y: tip.y });
-        const key = jump > 0.22 ? null : hitTest(board.x, board.y);
+        row.sx = row.sx * 0.55 + tip.x * 0.45;
+        row.sy = row.sy * 0.55 + tip.y * 0.45;
+        const board = applyH(toBoard, { x: row.sx, y: row.sy });
+        let key = jump > 0.28 ? null : hitTest(board.x, board.y);
+        if (finger.name === "thumb" && key && key.id !== "space") key = null;
         if (key) hot.add(key.id);
         trackFinger(b, row, id, finger.name, tip, pip, key, jump, dt, ctx.setDown);
       }
@@ -345,54 +354,33 @@ function trackFinger(
     return;
   }
 
-  const facing = b.getDirection() === "facing";
-  const z = tip.z ?? 0;
-  const signed = facing ? -z : z;
-  row.zHist.push(signed);
-  row.yHist.push(tip.y);
-  if (row.zHist.length > 5) row.zHist.shift();
-  if (row.yHist.length > 5) row.yHist.shift();
+  if (jump > 0.012) row.travel = Math.min(0.4, row.travel + jump);
+  else row.travel *= 0.86;
 
-  const zRise = row.zHist.length >= 5 ? signed - row.zHist[0]! : 0;
-  const yDip = row.yHist.length >= 5 ? tip.y - row.yHist[0]! : 0;
-  const margin = name === "thumb" ? 0.012 : 0.007;
-  const jab = row.zHist.length >= 5 && (zRise > margin || (yDip > 0.006 && jump < 0.025));
-
-  if (key && jump < 0.03) {
+  if (key) {
     if (row.dwellId !== key.id) {
       row.dwellId = key.id;
       row.dwellMs = 0;
     } else {
       row.dwellMs += dt;
     }
-  } else if (!key) {
-    row.dwellId = null;
+  } else {
     row.dwellMs = 0;
+    row.dwellId = null;
+    if (row.armed) row.armed = null;
   }
 
-  if (row.armed) {
-    const lifted = !key || key.id !== row.armed || yDip < -0.004 || zRise < -0.004;
-    if (lifted) {
-      row.armed = null;
-      row.streak = 0;
-      row.dwellMs = 0;
-      row.dwellId = null;
-    }
+  if (row.armed && row.dwellId !== row.armed) row.armed = null;
+  if (!key || row.armed === key.id) {
+    row.streak = 0;
     return;
   }
-
-  const heldStill = Boolean(key) && row.dwellId === key?.id && row.dwellMs >= 160;
-  if (key && (heldStill || (jump < 0.045 && jab))) {
-    row.streak = heldStill ? 2 : row.streak + 1;
-    if (row.streak >= 2) {
-      setDown(id, key.id);
-      setDown(id, null);
-      row.armed = key.id;
-      row.streak = 0;
-    }
-    return;
+  if (row.dwellMs >= 80 && row.travel > 0.02) {
+    setDown(id, key.id);
+    setDown(id, null);
+    row.armed = key.id;
+    row.travel = 0;
   }
-  row.streak = 0;
 }
 
 function drawKey(

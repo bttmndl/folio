@@ -306,6 +306,12 @@ export function Studio() {
     primeAudio();
     if (phase === "down") {
       if (modeRef.current !== "camera") docRef.current?.focus({ preventScroll: true });
+      if (modeRef.current === "camera") {
+        editorRef.current = {
+          ...editorRef.current,
+          sticky: { shift: false, ctrl: false, alt: false, meta: false, fn: false },
+        };
+      }
       apply(key, "down");
       if (modeRef.current === "camera" || !repeats(key)) return;
       const wait = window.setTimeout(() => {

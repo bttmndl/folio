@@ -140,7 +140,7 @@ function release(state: EditorState, key: KeySpec, now: number): { state: Editor
   const armedAt = { ...state.armedAt };
   delete armedAt[key.id];
   let next: EditorState = { ...state, held: state.held.filter((id) => id !== key.id), armedAt };
-  if (key.kind.t === "mod" && now - started < 280) {
+  if (key.kind.t === "mod" && now - started >= 50 && now - started < 280) {
     const mod = key.kind.mod;
     const on = !state.sticky[mod];
     next = {
