@@ -13,6 +13,7 @@ import {
   type Phase,
 } from "@/lib/editor";
 import { startHandLoop, type PressDirection, type PressStyle, type TrackerBridge } from "@/lib/hand-loop";
+import { playPluck } from "@/lib/guitar-synth";
 import { solveHomography, type Pt } from "@/lib/homography";
 import { KEY_BOUNDS, KEYS, keyById, type KeySpec } from "@/lib/keyboard-layout";
 import { cn } from "@/lib/cn";
@@ -43,6 +44,8 @@ export function Studio() {
   const [camLoading, setCamLoading] = useState(false);
   const [camAttempt, setCamAttempt] = useState(0);
   const [hydrated, setHydrated] = useState(false);
+  const [instrument, setInstrument] = useState<"keys" | "guitar">("keys");
+  const [chord, setChord] = useState("Open strings");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -59,10 +62,14 @@ export function Studio() {
   });
   const calibRef = useRef(calib);
   const watchRef = useRef<{ streak: number; pts: Pt[] | null }>({ streak: 0, pts: null });
+  const instrumentRef = useRef(instrument);
+  const chordRef = useRef(chord);
   editorRef.current = engine;
   modeRef.current = mode;
   audioRef.current.muted = muted;
   calibRef.current = calib;
+  instrumentRef.current = instrument;
+  chordRef.current = chord;
 
   const alignment = useMemo(() => {
     if (calib.length !== 4) return null;
@@ -89,6 +96,8 @@ export function Studio() {
     onEvent: () => {},
     onSheet: () => {},
     onReshape: () => {},
+    onGuitar: () => {},
+    getInstrument: () => "keys",
     sheetLocked: () => false,
   });
 
@@ -135,6 +144,16 @@ export function Studio() {
       setCalib([]);
       setLive("Looking for the keyboard.");
     },
+    onGuitar: (plucks, label) => {
+      if (label !== chordRef.current) {
+        chordRef.current = label;
+        setChord(label);
+      }
+      const audio = audioRef.current;
+      if (!plucks.length || audio.muted || !audio.ctx || !audio.gain) return;
+      for (const pluck of plucks) playPluck(audio.ctx, audio.gain, pluck.midi, pluck.velocity);
+    },
+    getInstrument: () => instrumentRef.current,
     sheetLocked: () => calibRef.current.length === 4,
   };
 
@@ -397,6 +416,16 @@ export function Studio() {
             <SwitchCamera className="size-5" aria-hidden />
             {facing === "user" ? "Front" : "Back"}
           </button>
+          <button
+            type="button"
+            className="cam-mode"
+            onClick={() => {
+              primeAudio();
+              setInstrument((current) => (current === "guitar" ? "keys" : "guitar"));
+            }}
+          >
+            {instrument === "guitar" ? "Keys" : "Guitar"}
+          </button>
           {camError ? (
             <div className="cam-status">
               <p className="max-w-xs text-sm leading-relaxed">{camError}</p>
@@ -406,7 +435,7 @@ export function Studio() {
             </div>
           ) : (
             <p className="cam-live" aria-live="polite">
-              {found ? status : "Looking for the keyboard"}
+              {instrument === "guitar" ? live : found ? status : "Looking for the keyboard"}
             </p>
           )}
           {!camError ? (
@@ -415,8 +444,8 @@ export function Studio() {
                 ref={docRef}
                 readOnly
                 className="doc cam-type"
-                value={engine.value}
-                placeholder="Words show up here."
+                value={instrument === "guitar" ? chord : engine.value}
+                placeholder={instrument === "guitar" ? "Open strings" : "Words show up here."}
                 aria-label="Typed text"
               />
             </div>

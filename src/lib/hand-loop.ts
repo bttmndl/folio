@@ -2,6 +2,7 @@ import { applyH, type Pt } from "./homography";
 import { hitTest, KEYS, type KeySpec } from "./keyboard-layout";
 import { previewPathPrefix } from "./preview-path-prefix";
 import { findSheet } from "./sheet-find";
+import { chordLabel, createGuitarPlay, drawGuitar, updateGuitar, type GuitarPlay, type Pluck } from "./guitar";
 
 export type PressStyle = "tap" | "rest";
 export type PressDirection = "above" | "facing";
@@ -19,6 +20,8 @@ export type TrackerBridge = {
   onEvent: (id: string, phase: "down" | "up") => void;
   onSheet: (points: Pt[] | null) => void;
   onReshape: () => void;
+  onGuitar: (plucks: Pluck[], label: string) => void;
+  getInstrument: () => "keys" | "guitar";
   sheetLocked: () => boolean;
 };
 
@@ -169,6 +172,7 @@ export async function startHandLoop(opts: {
       opts.bridge.current.onLive(text);
     };
 
+    const guitar = createGuitarPlay();
     let seenW = 0;
     let seenH = 0;
     const frame = () => {
@@ -207,7 +211,7 @@ export async function startHandLoop(opts: {
             bridge.onSheet(found?.points ?? null);
           }
           const result = landmarker.detectForVideo(video, ts);
-          paint(canvas, result.landmarks ?? [], dt, { mem, holders, setDown, live, bridge: opts.bridge });
+          paint(canvas, result.landmarks ?? [], dt, { mem, holders, setDown, live, guitar, bridge: opts.bridge });
         } catch {
           /* keep the camera up if a single frame fails */
         }
@@ -231,6 +235,7 @@ function paint(
     holders: Map<string, number>;
     setDown: (finger: string, keyId: string | null) => void;
     live: (text: string) => void;
+    guitar: GuitarPlay;
     bridge: { current: TrackerBridge };
   },
 ) {
@@ -240,6 +245,14 @@ function paint(
   const h = canvas.height;
   g.clearRect(0, 0, w, h);
   const b = ctx.bridge.current;
+  if (b.getInstrument() === "guitar") {
+    const plucks = updateGuitar(ctx.guitar, hands, w, h, performance.now());
+    drawGuitar(g, ctx.guitar, w, h, performance.now());
+    for (const hand of hands) drawHand(g, hand, w, h);
+    b.onGuitar(plucks, chordLabel(ctx.guitar.frets));
+    ctx.live(plucks.length ? "Playing" : "Hold a fret, then sweep across the strings.");
+    return;
+  }
   const toBoard = b.getToBoard();
   const toVideo = b.getToVideo();
   const flags = b.getFlags();
