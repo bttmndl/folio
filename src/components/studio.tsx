@@ -17,7 +17,7 @@ import { solveHomography, type Pt } from "@/lib/homography";
 import { KEY_BOUNDS, KEYS, keyById, type KeySpec } from "@/lib/keyboard-layout";
 import { cn } from "@/lib/cn";
 
-const STORE = "folio-v1";
+const STORE = "folio-v2";
 
 type Save = {
   value?: string;
@@ -307,7 +307,7 @@ export function Studio() {
     if (phase === "down") {
       if (modeRef.current !== "camera") docRef.current?.focus({ preventScroll: true });
       apply(key, "down");
-      if (!repeats(key)) return;
+      if (modeRef.current === "camera" || !repeats(key)) return;
       const wait = window.setTimeout(() => {
         const tick = window.setInterval(() => apply(key, "repeat"), 48);
         repeatsRef.current.set(`${id}:tick`, tick);

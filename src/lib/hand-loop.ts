@@ -97,9 +97,9 @@ export async function startHandLoop(opts: {
     const common = {
       numHands: 2,
       runningMode: "VIDEO" as const,
-      minHandDetectionConfidence: 0.55,
-      minHandPresenceConfidence: 0.55,
-      minTrackingConfidence: 0.5,
+      minHandDetectionConfidence: 0.75,
+      minHandPresenceConfidence: 0.72,
+      minTrackingConfidence: 0.65,
     };
     try {
       landmarker = await HandLandmarker.createFromOptions(wasm, {
@@ -119,7 +119,18 @@ export async function startHandLoop(opts: {
 
     const mem = new Map<
       string,
-      { streak: number; downId: string | null; dwellId: string | null; dwellMs: number; fired: boolean; x: number; y: number }
+      {
+        streak: number;
+        downId: string | null;
+        dwellId: string | null;
+        dwellMs: number;
+        fired: boolean;
+        x: number;
+        y: number;
+        base: number;
+        ready: boolean;
+        armed: string | null;
+      }
     >();
     const holders = new Map<string, number>();
     let lastTs = -1;
@@ -208,7 +219,18 @@ function paint(
   ctx: {
     mem: Map<
       string,
-      { streak: number; downId: string | null; dwellId: string | null; dwellMs: number; fired: boolean; x: number; y: number }
+      {
+        streak: number;
+        downId: string | null;
+        dwellId: string | null;
+        dwellMs: number;
+        fired: boolean;
+        x: number;
+        y: number;
+        base: number;
+        ready: boolean;
+        armed: string | null;
+      }
     >;
     holders: Map<string, number>;
     setDown: (finger: string, keyId: string | null) => void;
@@ -240,7 +262,7 @@ function paint(
         if (!tip || !pip) continue;
         let row = ctx.mem.get(id);
         if (!row) {
-          row = { streak: 0, downId: null, dwellId: null, dwellMs: 0, fired: false, x: tip.x, y: tip.y };
+          row = { streak: 0, downId: null, dwellId: null, dwellMs: 0, fired: false, x: tip.x, y: tip.y, base: 0, ready: false, armed: null };
           ctx.mem.set(id, row);
         }
         const jump = Math.hypot(tip.x - row.x, tip.y - row.y);
@@ -249,7 +271,7 @@ function paint(
         const board = applyH(toBoard, { x: tip.x, y: tip.y });
         const key = jump > 0.22 ? null : hitTest(board.x, board.y);
         if (key) hot.add(key.id);
-        trackFinger(b, row, id, finger.name, tip, pip, key, dt, ctx.setDown);
+        trackFinger(b, row, id, finger.name, tip, pip, key, jump, dt, ctx.setDown);
       }
     }
   }
@@ -294,12 +316,22 @@ function paint(
 
 function trackFinger(
   b: TrackerBridge,
-  row: { streak: number; downId: string | null; dwellId: string | null; dwellMs: number; fired: boolean },
+  row: {
+    streak: number;
+    downId: string | null;
+    dwellId: string | null;
+    dwellMs: number;
+    fired: boolean;
+    base: number;
+    ready: boolean;
+    armed: string | null;
+  },
   id: string,
   name: string,
   tip: LM,
   pip: LM,
   key: KeySpec | null,
+  jump: number,
   dt: number,
   setDown: (finger: string, keyId: string | null) => void,
 ) {
@@ -327,23 +359,38 @@ function trackFinger(
   }
 
   const depth = (tip.z ?? 0) - (pip.z ?? 0);
-  const thresh = b.getSensitivity() + (name === "thumb" ? 0.02 : 0);
-  const margin = 0.012;
   const facing = b.getDirection() === "facing";
-  const down = facing ? depth < -thresh : depth > thresh;
-  const still = facing ? depth < -(thresh - margin) : depth > thresh - margin;
+  const signed = facing ? -depth : depth;
+  const margin = Math.max(0.035, b.getSensitivity()) + (name === "thumb" ? 0.02 : 0);
 
-  if (row.downId && key && key.id === row.downId && still) {
-    row.streak = 2;
+  if (!row.ready) {
+    row.base = signed;
+    row.ready = true;
     return;
   }
-  if (down && key) {
+
+  const rise = signed - row.base;
+  if (row.armed) {
+    if (!key || key.id !== row.armed || rise < margin * 0.45) {
+      row.armed = null;
+      row.streak = 0;
+    }
+    return;
+  }
+
+  const settled = Boolean(key) && jump < 0.012;
+  if (settled && rise > margin) {
     row.streak += 1;
-    if (row.streak >= 2) setDown(id, key.id);
+    if (row.streak >= 3 && key) {
+      setDown(id, key.id);
+      setDown(id, null);
+      row.armed = key.id;
+      row.streak = 0;
+    }
     return;
   }
   row.streak = 0;
-  setDown(id, null);
+  row.base += (signed - row.base) * 0.22;
 }
 
 function drawKey(
@@ -378,9 +425,11 @@ function drawKey(
     g.fillStyle = "rgba(243,239,228,0.16)";
     g.fill();
   }
-  g.strokeStyle = pressed || lit || hot ? "#e09a3e" : "rgba(243,239,228,0.8)";
-  g.lineWidth = pressed || hot ? Math.max(2, w / 420) : Math.max(1.25, w / 700);
+  g.strokeStyle = pressed || lit || hot ? "#e09a3e" : "rgba(243,239,228,0.28)";
+  g.lineWidth = pressed || hot ? Math.max(2, w / 420) : Math.max(1, w / 900);
   g.stroke();
+
+  if (!pressed && !lit && !hot) return;
 
   const cx = (quad[0]!.x + quad[1]!.x + quad[2]!.x + quad[3]!.x) / 4;
   const cy = (quad[0]!.y + quad[1]!.y + quad[2]!.y + quad[3]!.y) / 4;
