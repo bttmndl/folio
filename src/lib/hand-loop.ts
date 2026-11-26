@@ -1,6 +1,7 @@
 import { applyH, type Pt } from "./homography";
 import { hitTest, KEYS, type KeySpec } from "./keyboard-layout";
 import { previewPathPrefix } from "./preview-path-prefix";
+import { findSheet } from "./sheet-find";
 
 export type PressStyle = "tap" | "rest";
 export type PressDirection = "above" | "facing";
@@ -16,6 +17,8 @@ export type TrackerBridge = {
   getCalib: () => Pt[];
   onLive: (text: string) => void;
   onEvent: (id: string, phase: "down" | "up") => void;
+  onSheet: (points: Pt[] | null) => void;
+  sheetLocked: () => boolean;
 };
 
 type LM = { x: number; y: number; z?: number };
@@ -122,6 +125,9 @@ export async function startHandLoop(opts: {
     let lastTs = -1;
     let lastFrame = performance.now();
     let lastLive = "";
+    let probeTick = 0;
+    const probe = document.createElement("canvas");
+    const probeCtx = probe.getContext("2d", { willReadFrequently: true });
 
     const emit = (id: string, phase: "down" | "up") => opts.bridge.current.onEvent(id, phase);
 
@@ -164,6 +170,21 @@ export async function startHandLoop(opts: {
         const dt = Math.min(50, now - lastFrame);
         lastFrame = now;
         try {
+          const bridge = opts.bridge.current;
+          if (!bridge.sheetLocked() && probeCtx && probeTick++ % 3 === 0) {
+            const long = Math.max(video.videoWidth, video.videoHeight);
+            const scale = 240 / long;
+            const pw = Math.max(32, Math.round(video.videoWidth * scale));
+            const ph = Math.max(32, Math.round(video.videoHeight * scale));
+            if (probe.width !== pw || probe.height !== ph) {
+              probe.width = pw;
+              probe.height = ph;
+            }
+            probeCtx.drawImage(video, 0, 0, pw, ph);
+            const shot = probeCtx.getImageData(0, 0, pw, ph);
+            const found = findSheet(shot.data, pw, ph);
+            bridge.onSheet(found?.points ?? null);
+          }
           const result = landmarker.detectForVideo(video, ts);
           paint(canvas, result.landmarks ?? [], dt, { mem, holders, setDown, live, bridge: opts.bridge });
         } catch {

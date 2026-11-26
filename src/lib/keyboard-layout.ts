@@ -318,6 +318,26 @@ export const KEYS: KeySpec[] = [
 
 const BY_ID = new Map(KEYS.map((key) => [key.id, key]));
 
+/** Outer corners of the printed key ink: top-left, top-right, bottom-right, bottom-left. */
+export const KEY_BOUNDS: { x: number; y: number }[] = (() => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const key of KEYS) {
+    if (key.x < minX) minX = key.x;
+    if (key.y < minY) minY = key.y;
+    if (key.x + key.w > maxX) maxX = key.x + key.w;
+    if (key.y + key.h > maxY) maxY = key.y + key.h;
+  }
+  return [
+    { x: minX, y: minY },
+    { x: maxX, y: minY },
+    { x: maxX, y: maxY },
+    { x: minX, y: maxY },
+  ];
+})();
+
 export function keyById(id: string): KeySpec | undefined {
   return BY_ID.get(id);
 }
