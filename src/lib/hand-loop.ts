@@ -190,7 +190,6 @@ export async function startHandLoop(opts: {
 
     const guitar = createGuitarPlay();
     let poseMarks: LM[] | null = null;
-    let poseTick = 0;
     let seenW = 0;
     let seenH = 0;
     const frame = () => {
@@ -229,7 +228,7 @@ export async function startHandLoop(opts: {
             bridge.onSheet(found?.points ?? null);
           }
           const result = landmarker.detectForVideo(video, ts);
-          if (bridge.getInstrument() === "guitar" && poser && poseTick++ % 2 === 0) {
+          if (bridge.getInstrument() === "guitar" && poser) {
             try {
               const posed = poser.detectForVideo(video, ts);
               poseMarks = posed.landmarks?.[0] ?? poseMarks;
@@ -283,12 +282,23 @@ function paint(
   g.clearRect(0, 0, w, h);
   const b = ctx.bridge.current;
   if (b.getInstrument() === "guitar") {
-    const tracked: TrackedHand[] = [];
-    hands.forEach((points, index) => {
-      const name = ctx.handed[index]?.[0]?.categoryName;
-      const side = name === "Left" || name === "Right" ? name : points[0] && points[0].x > 0.5 ? "Left" : "Right";
-      tracked.push({ side, points });
+    const tracked: TrackedHand[] = hands.map((points, index) => {
+      const hinted = ctx.handed[index]?.[0]?.categoryName;
+      const wrist = points[0];
+      const leftWrist = pose?.[15];
+      const rightWrist = pose?.[16];
+      let side: "Left" | "Right" =
+        hinted === "Left" || hinted === "Right" ? hinted : wrist && wrist.x > 0.5 ? "Left" : "Right";
+      if (wrist && leftWrist && rightWrist && Number.isFinite(leftWrist.x) && Number.isFinite(rightWrist.x)) {
+        const dL = Math.hypot(wrist.x - leftWrist.x, wrist.y - leftWrist.y);
+        const dR = Math.hypot(wrist.x - rightWrist.x, wrist.y - rightWrist.y);
+        side = dL <= dR ? "Left" : "Right";
+      }
+      return { side, points };
     });
+    if (tracked.length === 2 && tracked[0]!.side === tracked[1]!.side) {
+      tracked[1] = { side: tracked[0]!.side === "Left" ? "Right" : "Left", points: tracked[1]!.points };
+    }
     const pose: Point[] | null = ctx.pose
       ? ctx.pose.map((point) => {
           const visibility = (point as LM & { visibility?: number }).visibility;
