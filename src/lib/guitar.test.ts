@@ -24,5 +24,8 @@ test("the neck reaches the player's left hand", () => {
   const hold = solveHold(pose, []);
   assert.ok(hold);
   assert.ok(hold.nut.x > hold.bridge.x);
-  assert.ok(hold.nut.y < hold.tail.y);
+  const wrist = pose[15]!;
+  const nutDist = Math.hypot(hold.nut.x - wrist.x, hold.nut.y - wrist.y);
+  const bridgeDist = Math.hypot(hold.bridge.x - wrist.x, hold.bridge.y - wrist.y);
+  assert.ok(nutDist < bridgeDist);
 });

@@ -295,7 +295,7 @@ function paint(
           return visibility !== undefined && visibility < 0.35 ? { x: Number.NaN, y: Number.NaN } : point;
         })
       : null;
-    const plucks = updateGuitar(ctx.guitar, tracked, pose, performance.now());
+    const plucks = updateGuitar(ctx.guitar, tracked, pose, performance.now(), w, h);
     drawGuitar(g, ctx.guitar, w, h, performance.now());
     for (const hand of hands) drawHand(g, hand, w, h);
     b.onGuitar(plucks, ctx.guitar.hold ? chordLabel(ctx.guitar.frets) : "Step into frame");
