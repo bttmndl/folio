@@ -23,6 +23,19 @@ export type TrackerBridge = {
 
 type LM = { x: number; y: number; z?: number };
 
+type FingerMem = {
+  streak: number;
+  downId: string | null;
+  dwellId: string | null;
+  dwellMs: number;
+  fired: boolean;
+  x: number;
+  y: number;
+  armed: string | null;
+  zHist: number[];
+  yHist: number[];
+};
+
 const FINGERS = [
   { name: "thumb", tip: 4, pip: 3 },
   { name: "index", tip: 8, pip: 6 },
@@ -97,9 +110,9 @@ export async function startHandLoop(opts: {
     const common = {
       numHands: 2,
       runningMode: "VIDEO" as const,
-      minHandDetectionConfidence: 0.75,
-      minHandPresenceConfidence: 0.72,
-      minTrackingConfidence: 0.65,
+      minHandDetectionConfidence: 0.5,
+      minHandPresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
     };
     try {
       landmarker = await HandLandmarker.createFromOptions(wasm, {
@@ -117,21 +130,7 @@ export async function startHandLoop(opts: {
       return teardown;
     }
 
-    const mem = new Map<
-      string,
-      {
-        streak: number;
-        downId: string | null;
-        dwellId: string | null;
-        dwellMs: number;
-        fired: boolean;
-        x: number;
-        y: number;
-        base: number;
-        ready: boolean;
-        armed: string | null;
-      }
-    >();
+    const mem = new Map<string, FingerMem>();
     const holders = new Map<string, number>();
     let lastTs = -1;
     let lastFrame = performance.now();
@@ -217,21 +216,7 @@ function paint(
   hands: LM[][],
   dt: number,
   ctx: {
-    mem: Map<
-      string,
-      {
-        streak: number;
-        downId: string | null;
-        dwellId: string | null;
-        dwellMs: number;
-        fired: boolean;
-        x: number;
-        y: number;
-        base: number;
-        ready: boolean;
-        armed: string | null;
-      }
-    >;
+    mem: Map<string, FingerMem>;
     holders: Map<string, number>;
     setDown: (finger: string, keyId: string | null) => void;
     live: (text: string) => void;
@@ -262,7 +247,18 @@ function paint(
         if (!tip || !pip) continue;
         let row = ctx.mem.get(id);
         if (!row) {
-          row = { streak: 0, downId: null, dwellId: null, dwellMs: 0, fired: false, x: tip.x, y: tip.y, base: 0, ready: false, armed: null };
+          row = {
+            streak: 0,
+            downId: null,
+            dwellId: null,
+            dwellMs: 0,
+            fired: false,
+            x: tip.x,
+            y: tip.y,
+            armed: null,
+            zHist: [],
+            yHist: [],
+          };
           ctx.mem.set(id, row);
         }
         const jump = Math.hypot(tip.x - row.x, tip.y - row.y);
@@ -316,16 +312,7 @@ function paint(
 
 function trackFinger(
   b: TrackerBridge,
-  row: {
-    streak: number;
-    downId: string | null;
-    dwellId: string | null;
-    dwellMs: number;
-    fired: boolean;
-    base: number;
-    ready: boolean;
-    armed: string | null;
-  },
+  row: FingerMem,
   id: string,
   name: string,
   tip: LM,
@@ -358,30 +345,46 @@ function trackFinger(
     return;
   }
 
-  const depth = (tip.z ?? 0) - (pip.z ?? 0);
   const facing = b.getDirection() === "facing";
-  const signed = facing ? -depth : depth;
-  const margin = Math.max(0.035, b.getSensitivity()) + (name === "thumb" ? 0.02 : 0);
+  const z = tip.z ?? 0;
+  const signed = facing ? -z : z;
+  row.zHist.push(signed);
+  row.yHist.push(tip.y);
+  if (row.zHist.length > 5) row.zHist.shift();
+  if (row.yHist.length > 5) row.yHist.shift();
 
-  if (!row.ready) {
-    row.base = signed;
-    row.ready = true;
-    return;
+  const zRise = row.zHist.length >= 5 ? signed - row.zHist[0]! : 0;
+  const yDip = row.yHist.length >= 5 ? tip.y - row.yHist[0]! : 0;
+  const margin = name === "thumb" ? 0.012 : 0.007;
+  const jab = row.zHist.length >= 5 && (zRise > margin || (yDip > 0.006 && jump < 0.025));
+
+  if (key && jump < 0.03) {
+    if (row.dwellId !== key.id) {
+      row.dwellId = key.id;
+      row.dwellMs = 0;
+    } else {
+      row.dwellMs += dt;
+    }
+  } else if (!key) {
+    row.dwellId = null;
+    row.dwellMs = 0;
   }
 
-  const rise = signed - row.base;
   if (row.armed) {
-    if (!key || key.id !== row.armed || rise < margin * 0.45) {
+    const lifted = !key || key.id !== row.armed || yDip < -0.004 || zRise < -0.004;
+    if (lifted) {
       row.armed = null;
       row.streak = 0;
+      row.dwellMs = 0;
+      row.dwellId = null;
     }
     return;
   }
 
-  const settled = Boolean(key) && jump < 0.012;
-  if (settled && rise > margin) {
-    row.streak += 1;
-    if (row.streak >= 3 && key) {
+  const heldStill = Boolean(key) && row.dwellId === key?.id && row.dwellMs >= 160;
+  if (key && (heldStill || (jump < 0.045 && jab))) {
+    row.streak = heldStill ? 2 : row.streak + 1;
+    if (row.streak >= 2) {
       setDown(id, key.id);
       setDown(id, null);
       row.armed = key.id;
@@ -390,7 +393,6 @@ function trackFinger(
     return;
   }
   row.streak = 0;
-  row.base += (signed - row.base) * 0.22;
 }
 
 function drawKey(

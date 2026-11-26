@@ -362,6 +362,6 @@ export function hitTest(px: number, py: number): KeySpec | null {
       best = key;
     }
   }
-  if (!best || bestD > 0.2) return null;
+  if (!best || bestD > 0.32) return null;
   return best;
 }
