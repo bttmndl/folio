@@ -2,7 +2,7 @@ import { applyH, type Pt } from "./homography";
 import { hitTest, KEYS, type KeySpec } from "./keyboard-layout";
 import { previewPathPrefix } from "./preview-path-prefix";
 import { findSheet } from "./sheet-find";
-import { chordLabel, createGuitarPlay, drawGuitar, updateGuitar, type GuitarPlay, type Pluck } from "./guitar";
+import { chordLabel, createGuitarPlay, drawGuitar, updateGuitar, type GuitarPlay, type Pluck, type Point, type TrackedHand } from "./guitar";
 
 export type PressStyle = "tap" | "rest";
 export type PressDirection = "above" | "facing";
@@ -78,14 +78,17 @@ export async function startHandLoop(opts: {
   let running = true;
   let raf = 0;
   let stream: MediaStream | null = null;
-  let landmarker: { close: () => void; detectForVideo: (v: HTMLVideoElement, t: number) => { landmarks?: LM[][] } } | null =
+  let landmarker: { close: () => void; detectForVideo: (v: HTMLVideoElement, t: number) => { landmarks?: LM[][]; handedness?: { categoryName?: string }[][] } } | null =
     null;
+  let poser: { close: () => void; detectForVideo: (v: HTMLVideoElement, t: number) => { landmarks?: LM[][] } } | null = null;
 
   const teardown = () => {
     running = false;
     cancelAnimationFrame(raf);
     landmarker?.close();
+    poser?.close();
     landmarker = null;
+    poser = null;
     stream?.getTracks().forEach((track) => track.stop());
     stream = null;
     if (opts.video.srcObject) opts.video.srcObject = null;
@@ -111,7 +114,7 @@ export async function startHandLoop(opts: {
       return teardown;
     }
 
-    const { FilesetResolver, HandLandmarker } = await import("@mediapipe/tasks-vision");
+    const { FilesetResolver, HandLandmarker, PoseLandmarker } = await import("@mediapipe/tasks-vision");
     const root = assetRoot();
     const wasm = await FilesetResolver.forVisionTasks(`${root}/mediapipe`);
     const model = `${root}/mediapipe/hand_landmarker.task`;
@@ -132,6 +135,18 @@ export async function startHandLoop(opts: {
         ...common,
         baseOptions: { modelAssetPath: model, delegate: "CPU" },
       });
+    }
+    try {
+      poser = await PoseLandmarker.createFromOptions(wasm, {
+        runningMode: "VIDEO",
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minPosePresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+        baseOptions: { modelAssetPath: `${root}/mediapipe/pose_landmarker_lite.task`, delegate: "CPU" },
+      });
+    } catch {
+      poser = null;
     }
     if (!running) {
       teardown();
@@ -174,6 +189,8 @@ export async function startHandLoop(opts: {
     };
 
     const guitar = createGuitarPlay();
+    let poseMarks: LM[] | null = null;
+    let poseTick = 0;
     let seenW = 0;
     let seenH = 0;
     const frame = () => {
@@ -197,7 +214,7 @@ export async function startHandLoop(opts: {
         lastFrame = now;
         try {
           const bridge = opts.bridge.current;
-          if (!bridge.sheetLocked() && probeCtx && probeTick++ % 3 === 0) {
+          if (bridge.getInstrument() !== "guitar" && !bridge.sheetLocked() && probeCtx && probeTick++ % 3 === 0) {
             const long = Math.max(video.videoWidth, video.videoHeight);
             const scale = 240 / long;
             const pw = Math.max(32, Math.round(video.videoWidth * scale));
@@ -212,7 +229,24 @@ export async function startHandLoop(opts: {
             bridge.onSheet(found?.points ?? null);
           }
           const result = landmarker.detectForVideo(video, ts);
-          paint(canvas, result.landmarks ?? [], dt, { mem, holders, setDown, live, guitar, bridge: opts.bridge });
+          if (bridge.getInstrument() === "guitar" && poser && poseTick++ % 2 === 0) {
+            try {
+              const posed = poser.detectForVideo(video, ts);
+              poseMarks = posed.landmarks?.[0] ?? poseMarks;
+            } catch {
+              /* keep the last body pose */
+            }
+          }
+          paint(canvas, result.landmarks ?? [], dt, {
+            mem,
+            holders,
+            setDown,
+            live,
+            guitar,
+            pose: poseMarks,
+            handed: result.handedness ?? [],
+            bridge: opts.bridge,
+          });
         } catch {
           /* keep the camera up if a single frame fails */
         }
@@ -237,6 +271,8 @@ function paint(
     setDown: (finger: string, keyId: string | null) => void;
     live: (text: string) => void;
     guitar: GuitarPlay;
+    pose: LM[] | null;
+    handed: { categoryName?: string }[][];
     bridge: { current: TrackerBridge };
   },
 ) {
@@ -247,12 +283,27 @@ function paint(
   g.clearRect(0, 0, w, h);
   const b = ctx.bridge.current;
   if (b.getInstrument() === "guitar") {
-    const mirrored = b.getMirrored();
-    const plucks = updateGuitar(ctx.guitar, hands, w, h, performance.now(), mirrored);
-    drawGuitar(g, ctx.guitar, w, h, performance.now(), mirrored);
+    const tracked: TrackedHand[] = [];
+    hands.forEach((points, index) => {
+      const name = ctx.handed[index]?.[0]?.categoryName;
+      const side = name === "Left" || name === "Right" ? name : points[0] && points[0].x > 0.5 ? "Left" : "Right";
+      tracked.push({ side, points });
+    });
+    const pose: Point[] | null = ctx.pose
+      ? ctx.pose.map((point) => {
+          const visibility = (point as LM & { visibility?: number }).visibility;
+          return visibility !== undefined && visibility < 0.35 ? { x: Number.NaN, y: Number.NaN } : point;
+        })
+      : null;
+    const plucks = updateGuitar(ctx.guitar, tracked, pose, performance.now());
+    drawGuitar(g, ctx.guitar, w, h, performance.now());
     for (const hand of hands) drawHand(g, hand, w, h);
-    b.onGuitar(plucks, chordLabel(ctx.guitar.frets));
-    ctx.live("Left hand on the neck. Right hand strums the sound hole.");
+    b.onGuitar(plucks, ctx.guitar.hold ? chordLabel(ctx.guitar.frets) : "Step into frame");
+    ctx.live(
+      ctx.guitar.hold
+        ? "Left hand frets the neck. Right hand strums."
+        : "Step back so your shoulders and hands are in frame.",
+    );
     return;
   }
   const toBoard = b.getToBoard();
