@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Copy, X } from "lucide-react";
+import { Camera, Copy, SwitchCamera, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KeySheet } from "@/components/key-sheet";
 import {
@@ -35,8 +35,8 @@ export function Studio() {
   const [mode, setMode] = useState<"home" | "camera">("home");
   const [engine, setEngine] = useState<EditorState>(createEditor);
   const [calib, setCalib] = useState<Pt[]>([]);
-  const [mirror] = useState(true);
-  const [facing] = useState<"user" | "environment">("user");
+  const [mirror, setMirror] = useState(true);
+  const [facing, setFacing] = useState<"user" | "environment">("user");
   const [sense] = useState(0.02);
   const [direction] = useState<PressDirection>("above");
   const [style] = useState<PressStyle>("tap");
@@ -330,6 +330,16 @@ export function Studio() {
     setMode("camera");
   }
 
+  function flipCamera() {
+    const next = facing === "user" ? "environment" : "user";
+    setFacing(next);
+    setMirror(next === "user");
+    watchRef.current = { streak: 0, pts: null };
+    setCalib([]);
+    setCamError(null);
+    setLive("Looking for the keyboard.");
+  }
+
   function closeCamera() {
     setMode("home");
     setCalib([]);
@@ -340,7 +350,9 @@ export function Studio() {
   const status = camError
     ? camError
     : camLoading
-      ? "Opening the front camera…"
+      ? facing === "user"
+        ? "Opening the front camera…"
+        : "Opening the back camera…"
       : found
         ? live
         : "Looking for the keyboard.";
@@ -369,6 +381,10 @@ export function Studio() {
           </div>
           <button type="button" className="cam-close" onClick={closeCamera} aria-label="Close camera">
             <X className="size-5" aria-hidden />
+          </button>
+          <button type="button" className="cam-flip" onClick={flipCamera} aria-label="Switch camera">
+            <SwitchCamera className="size-5" aria-hidden />
+            {facing === "user" ? "Front" : "Back"}
           </button>
           {camError ? (
             <div className="cam-status">
