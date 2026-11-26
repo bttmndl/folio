@@ -98,6 +98,7 @@ export function Studio() {
     onReshape: () => {},
     onGuitar: () => {},
     getInstrument: () => "keys",
+    getMirrored: () => true,
     sheetLocked: () => false,
   });
 
@@ -154,6 +155,7 @@ export function Studio() {
       for (const pluck of plucks) playPluck(audio.ctx, audio.gain, pluck.midi, pluck.velocity);
     },
     getInstrument: () => instrumentRef.current,
+    getMirrored: () => mirror,
     sheetLocked: () => calibRef.current.length === 4,
   };
 

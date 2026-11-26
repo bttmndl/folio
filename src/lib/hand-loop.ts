@@ -22,6 +22,7 @@ export type TrackerBridge = {
   onReshape: () => void;
   onGuitar: (plucks: Pluck[], label: string) => void;
   getInstrument: () => "keys" | "guitar";
+  getMirrored: () => boolean;
   sheetLocked: () => boolean;
 };
 
@@ -246,11 +247,12 @@ function paint(
   g.clearRect(0, 0, w, h);
   const b = ctx.bridge.current;
   if (b.getInstrument() === "guitar") {
-    const plucks = updateGuitar(ctx.guitar, hands, w, h, performance.now());
-    drawGuitar(g, ctx.guitar, w, h, performance.now());
+    const mirrored = b.getMirrored();
+    const plucks = updateGuitar(ctx.guitar, hands, w, h, performance.now(), mirrored);
+    drawGuitar(g, ctx.guitar, w, h, performance.now(), mirrored);
     for (const hand of hands) drawHand(g, hand, w, h);
     b.onGuitar(plucks, chordLabel(ctx.guitar.frets));
-    ctx.live(plucks.length ? "Playing" : "Hold a fret, then sweep across the strings.");
+    ctx.live("Left hand on the neck. Right hand strums the sound hole.");
     return;
   }
   const toBoard = b.getToBoard();
