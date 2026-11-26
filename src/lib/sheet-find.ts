@@ -13,6 +13,10 @@ type Run = { start: number; end: number };
  * Returns null until that shape is actually there.
  */
 export function findSheet(rgba: Uint8ClampedArray, width: number, height: number): SheetHit | null {
+  return findPrinted(rgba, width, height) ?? findLaptop(rgba, width, height);
+}
+
+function findPrinted(rgba: Uint8ClampedArray, width: number, height: number): SheetHit | null {
   if (width < 24 || height < 24 || rgba.length < width * height * 4) return null;
   const n = width * height;
   const luma = new Uint8Array(n);
@@ -113,6 +117,110 @@ export function findSheet(rgba: Uint8ClampedArray, width: number, height: number
 
   const norm = (p: { x: number; y: number }) => ({ x: (p.x + 0.5) / width, y: (p.y + 0.5) / height });
   return { points: [norm(tl), norm(tr), norm(br), norm(bl)] };
+}
+
+/** A real laptop deck: gray keycaps, not a white printed sheet. */
+function findLaptop(rgba: Uint8ClampedArray, width: number, height: number): SheetHit | null {
+  if (width < 24 || height < 24) return null;
+  const n = width * height;
+  const mask = new Uint8Array(n);
+  const luma = new Uint8Array(n);
+  let marked = 0;
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    const r = rgba[p]!;
+    const g = rgba[p + 1]!;
+    const b = rgba[p + 2]!;
+    const y = (r * 0.299 + g * 0.587 + b * 0.114) | 0;
+    luma[i] = y;
+    const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+    if (chroma < 32 && y >= 32 && y <= 150) {
+      mask[i] = 1;
+      marked++;
+    }
+  }
+  if (marked < n * 0.06) return null;
+
+  const rows = new Float32Array(height);
+  for (let y = 0; y < height; y++) {
+    let count = 0;
+    for (let x = 0; x < width; x++) if (mask[y * width + x]) count++;
+    rows[y] = count;
+  }
+  const rowFlags: boolean[] = [];
+  for (let y = 0; y < height; y++) rowFlags.push(rows[y]! >= width * 0.18);
+  const rowOn = bridge(rowFlags, Math.max(2, Math.round(height * 0.07)));
+  const rowRun = longestOn(rowOn);
+  if (!rowRun) return null;
+  const bandH = rowRun.end - rowRun.start + 1;
+  if (bandH < height * 0.16 || bandH > height * 0.96) return null;
+
+  const cols = new Float32Array(width);
+  for (let x = 0; x < width; x++) {
+    let count = 0;
+    for (let y = rowRun.start; y <= rowRun.end; y++) if (mask[y * width + x]) count++;
+    cols[x] = count;
+  }
+  const colOn = bridge(Array.from(cols, (value) => value >= bandH * 0.14), Math.max(2, Math.round(width * 0.05)));
+  const colRun = longestOn(colOn);
+  if (!colRun) return null;
+  const bandW = colRun.end - colRun.start + 1;
+  if (bandW < width * 0.28) return null;
+  const aspect = bandW / bandH;
+  if (aspect < 0.5 || aspect > 5.4) return null;
+  if (bandW * bandH < n * 0.08) return null;
+
+  let edges = 0;
+  let samples = 0;
+  for (let y = rowRun.start; y <= rowRun.end; y += 1) {
+    for (let x = colRun.start; x < colRun.end; x += 2) {
+      samples++;
+      if (Math.abs(luma[y * width + x]! - luma[y * width + x + 1]!) > 14) edges++;
+    }
+  }
+  if (!samples || edges / samples < 0.045) return null;
+
+  const norm = (x: number, y: number) => ({ x: (x + 0.5) / width, y: (y + 0.5) / height });
+  return {
+    points: [
+      norm(colRun.start, rowRun.start),
+      norm(colRun.end, rowRun.start),
+      norm(colRun.end, rowRun.end),
+      norm(colRun.start, rowRun.end),
+    ],
+  };
+}
+
+function bridge(flags: boolean[], gap: number): boolean[] {
+  const on = flags.slice();
+  let i = 0;
+  while (i < on.length) {
+    if (on[i]) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < on.length && !on[j]) j++;
+    if (i > 0 && j < on.length && j - i <= gap) {
+      for (let k = i; k < j; k++) on[k] = true;
+    }
+    i = j === i ? i + 1 : j;
+  }
+  return on;
+}
+
+function longestOn(flags: boolean[]): Run | null {
+  let best: Run | null = null;
+  let start = -1;
+  for (let i = 0; i <= flags.length; i++) {
+    const on = i < flags.length && flags[i];
+    if (on && start < 0) start = i;
+    if (!on && start >= 0) {
+      const run = { start, end: i - 1 };
+      if (!best || run.end - run.start > best.end - best.start) best = run;
+      start = -1;
+    }
+  }
+  return best;
 }
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }) {

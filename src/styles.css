@@ -313,6 +313,7 @@
   font-size: 0.9rem;
   line-height: 1.4;
   color: var(--color-paper);
+  text-shadow: 0 1px 8px rgb(0 0 0 / 0.8);
 }
 
 .cam-doc {
@@ -324,8 +325,14 @@
 }
 
 .cam-doc .doc {
-  min-height: 6.5rem;
-  max-height: 30vh;
+  min-height: 4.75rem;
+  max-height: 22vh;
+  font-size: 1.55rem;
+  line-height: 1.35;
+}
+
+.cam-type {
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.35);
 }
 
 input.depth {

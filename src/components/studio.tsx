@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Copy, SwitchCamera, X } from "lucide-react";
+import { Camera, SwitchCamera, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KeySheet } from "@/components/key-sheet";
 import {
   createEditor,
   insertPlain,
   modOn,
-  pushUndo,
-  redo,
   reduceKey,
   repeats,
-  undo,
   type EditorState,
   type Fx,
   type Phase,
@@ -37,7 +34,7 @@ export function Studio() {
   const [calib, setCalib] = useState<Pt[]>([]);
   const [mirror, setMirror] = useState(true);
   const [facing, setFacing] = useState<"user" | "environment">("user");
-  const [sense] = useState(0.02);
+  const [sense] = useState(0.012);
   const [direction] = useState<PressDirection>("above");
   const [style] = useState<PressStyle>("tap");
   const [muted, setMuted] = useState(false);
@@ -118,7 +115,7 @@ export function Studio() {
         prev !== null &&
         points.every((point, index) => {
           const before = prev[index];
-          return before ? Math.hypot(point.x - before.x, point.y - before.y) < 0.045 : false;
+          return before ? Math.hypot(point.x - before.x, point.y - before.y) < 0.07 : false;
         });
       watch.pts = points;
       watch.streak = near ? watch.streak + 1 : 1;
@@ -178,6 +175,7 @@ export function Studio() {
     const end = Math.max(engine.anchor, engine.focus);
     if (el.selectionStart === start && el.selectionEnd === end) return;
     el.setSelectionRange(start, end, engine.focus >= engine.anchor ? "forward" : "backward");
+    el.scrollTop = el.scrollHeight;
   }, [engine.anchor, engine.focus, engine.value]);
 
   useEffect(() => {
@@ -393,71 +391,21 @@ export function Studio() {
                 Try again
               </Button>
             </div>
-          ) : found ? (
-            <p className="cam-live" aria-live="polite">
-              {status}
-            </p>
           ) : (
-            <div className="cam-status">
-              <p className="font-display text-4xl leading-none">Looking for the keyboard</p>
-              <p className="max-w-xs text-sm leading-relaxed text-mist">Hold the printed sheet in front of the camera.</p>
-            </div>
+            <p className="cam-live" aria-live="polite">
+              {found ? status : "Looking for the keyboard"}
+            </p>
           )}
-          {found ? (
+          {!camError ? (
             <div className="cam-doc">
               <textarea
                 ref={docRef}
-                className="doc min-h-28 w-full"
+                readOnly
+                className="doc cam-type"
                 value={engine.value}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                placeholder="Typed keys land here."
-                aria-label="Document"
-                onChange={(event) => {
-                  const el = event.target;
-                  const caret = caretFrom(el);
-                  setEngine((state) => ({ ...state, value: el.value, anchor: caret.anchor, focus: caret.focus }));
-                }}
-                onSelect={(event) => {
-                  const el = event.currentTarget;
-                  if (el.value !== engine.value) return;
-                  const caret = caretFrom(el);
-                  setEngine((state) =>
-                    state.anchor === caret.anchor && state.focus === caret.focus ? state : { ...state, ...caret },
-                  );
-                }}
-                onKeyDown={(event) => {
-                  const key = event.key;
-                  if ((event.ctrlKey || event.metaKey) && (key === "z" || key === "Z")) {
-                    event.preventDefault();
-                    setEngine((state) => (event.shiftKey ? redo(state) : undo(state)));
-                    return;
-                  }
-                  if ((event.ctrlKey || event.metaKey) && (key === "y" || key === "Y")) {
-                    event.preventDefault();
-                    setEngine((state) => redo(state));
-                    return;
-                  }
-                  if (key === "Tab") {
-                    event.preventDefault();
-                    setEngine((state) => insertPlain(state, "\t"));
-                    return;
-                  }
-                  const types =
-                    key === "Backspace" ||
-                    key === "Delete" ||
-                    key === "Enter" ||
-                    (key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey);
-                  if (types) setEngine((state) => pushUndo(state));
-                }}
+                placeholder="Words show up here."
+                aria-label="Typed text"
               />
-              <div className="mt-2 flex items-center">
-                <Button size="sm" variant="line" onClick={() => copyAll(engine.value, setEngine)}>
-                  <Copy className="size-4" aria-hidden />
-                  Copy
-                </Button>
-              </div>
             </div>
           ) : null}
         </section>
@@ -477,12 +425,6 @@ function keyIsOn(state: EditorState, key: KeySpec): boolean {
   return state.held.includes(key.id);
 }
 
-function caretFrom(el: HTMLTextAreaElement) {
-  const dir = el.selectionDirection;
-  if (dir === "backward") return { anchor: el.selectionEnd ?? 0, focus: el.selectionStart ?? 0 };
-  return { anchor: el.selectionStart ?? 0, focus: el.selectionEnd ?? 0 };
-}
-
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
 }
@@ -497,15 +439,4 @@ function cameraMessage(error: unknown): string {
   }
   if (error instanceof Error && error.message) return error.message;
   return "The camera didn't start.";
-}
-
-function copyAll(value: string, setEngine: (update: (state: EditorState) => EditorState) => void) {
-  if (!value) {
-    setEngine((state) => ({ ...state, chord: "Nothing to copy" }));
-    return;
-  }
-  void navigator.clipboard.writeText(value).then(
-    () => setEngine((state) => ({ ...state, chord: "Copied" })),
-    () => setEngine((state) => ({ ...state, chord: "Copy blocked" })),
-  );
 }

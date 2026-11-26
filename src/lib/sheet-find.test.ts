@@ -73,3 +73,32 @@ test("returns nothing for a tall page of text", () => {
   for (let y = 18; y < 120; y += 6) fillRect(data, 78, y, 162, y + 1, [20, 20, 20]);
   assert.equal(findSheet(data, W, H), null);
 });
+
+test("finds a dark laptop keyboard", () => {
+  const data = blank();
+  fillRect(data, 0, 0, W - 1, H - 1, [150, 40, 36]);
+  const x0 = 30;
+  const y0 = 28;
+  const x1 = 200;
+  const y1 = 108;
+  fillRect(data, x0, y0, x1, y1, [24, 26, 28]);
+  for (let row = 0; row < 5; row++) {
+    const top = y0 + 3 + row * 15;
+    for (let col = 0; col < 12; col++) {
+      const left = x0 + 4 + col * 14;
+      fillRect(data, left, top, left + 10, top + 10, [78, 80, 76]);
+    }
+  }
+  const hit = findSheet(data, W, H);
+  assert.ok(hit);
+  const [tl, tr, br, bl] = hit.points;
+  assert.ok(tl && tr && br && bl);
+  assert.ok(tl.x < 0.25 && tr.x > 0.7);
+  assert.ok(tl.y < 0.4 && bl.y > 0.65);
+});
+
+test("ignores a flat gray panel", () => {
+  const data = blank();
+  fillRect(data, 20, 20, 210, 110, [90, 90, 90]);
+  assert.equal(findSheet(data, W, H), null);
+});
