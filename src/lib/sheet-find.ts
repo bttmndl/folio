@@ -179,7 +179,7 @@ function findLaptop(rgba: Uint8ClampedArray, width: number, height: number): She
   const bandW = colRun.end - colRun.start + 1;
   if (bandW < width * 0.35) return null;
   const aspect = bandW / bandH;
-  if (aspect < 0.7 || aspect > 5.2) return null;
+  if (aspect < 0.55 || aspect > 6.5) return null;
   if (bandW * bandH < n * 0.06) return null;
 
   const norm = (x: number, y: number) => ({ x: (x + 0.5) / width, y: (y + 0.5) / height });

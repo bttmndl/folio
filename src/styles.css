@@ -214,7 +214,7 @@
 }
 
 .tap-camera {
-  width: min(78vw, 22rem);
+  width: min(78vw, 70dvh, 22rem);
   aspect-ratio: 1;
   border: 0;
   border-radius: 999px;
@@ -227,7 +227,7 @@
   gap: 0.85rem;
   padding: 1.5rem;
   font-family: var(--font-display);
-  font-size: clamp(2.7rem, 8vw, 4.5rem);
+  font-size: clamp(2rem, min(8vw, 12dvh), 4.5rem);
   font-weight: 650;
   line-height: 0.92;
   letter-spacing: -0.03em;
@@ -254,8 +254,8 @@
 .cam-close {
   position: absolute;
   z-index: 5;
-  top: 1rem;
-  left: 1rem;
+  top: max(0.75rem, env(safe-area-inset-top));
+  left: max(0.75rem, env(safe-area-inset-left));
   width: 3rem;
   height: 3rem;
   display: grid;
@@ -269,8 +269,8 @@
 .cam-flip {
   position: absolute;
   z-index: 5;
-  top: 1rem;
-  right: 1rem;
+  top: max(0.75rem, env(safe-area-inset-top));
+  right: max(0.75rem, env(safe-area-inset-right));
   height: 3rem;
   padding: 0 0.95rem;
   display: inline-flex;
@@ -305,9 +305,9 @@
 .cam-live {
   position: absolute;
   z-index: 4;
-  top: 4.5rem;
-  left: 1rem;
-  right: 1rem;
+  top: max(4.2rem, calc(env(safe-area-inset-top) + 3.4rem));
+  left: max(1rem, env(safe-area-inset-left));
+  right: max(1rem, env(safe-area-inset-right));
   margin: 0;
   text-align: center;
   font-size: 0.9rem;
@@ -319,9 +319,9 @@
 .cam-doc {
   position: absolute;
   z-index: 5;
-  right: 0.75rem;
-  bottom: 0.75rem;
-  left: 0.75rem;
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: max(0.75rem, env(safe-area-inset-bottom));
+  left: max(0.75rem, env(safe-area-inset-left));
 }
 
 .cam-doc .doc {
@@ -329,6 +329,20 @@
   max-height: 22vh;
   font-size: 1.55rem;
   line-height: 1.35;
+}
+
+@media (orientation: landscape) {
+  .cam-doc .doc {
+    min-height: 2.6rem;
+    max-height: 16dvh;
+    font-size: 1.2rem;
+  }
+
+  .cam-live {
+    top: max(0.35rem, env(safe-area-inset-top));
+    left: max(4.4rem, calc(env(safe-area-inset-left) + 3.6rem));
+    right: max(7.2rem, calc(env(safe-area-inset-right) + 6.4rem));
+  }
 }
 
 .cam-type {

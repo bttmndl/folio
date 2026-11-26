@@ -18,6 +18,7 @@ export type TrackerBridge = {
   onLive: (text: string) => void;
   onEvent: (id: string, phase: "down" | "up") => void;
   onSheet: (points: Pt[] | null) => void;
+  onReshape: () => void;
   sheetLocked: () => boolean;
 };
 
@@ -168,6 +169,8 @@ export async function startHandLoop(opts: {
       opts.bridge.current.onLive(text);
     };
 
+    let seenW = 0;
+    let seenH = 0;
     const frame = () => {
       if (!running || !landmarker) return;
       const video = opts.video;
@@ -177,6 +180,11 @@ export async function startHandLoop(opts: {
           canvas.width = video.videoWidth;
           canvas.height = video.videoHeight;
         }
+        if (seenW !== 0 && (video.videoWidth !== seenW || video.videoHeight !== seenH)) {
+          opts.bridge.current.onReshape();
+        }
+        seenW = video.videoWidth;
+        seenH = video.videoHeight;
         const now = performance.now();
         const ts = now <= lastTs ? lastTs + 1 : now;
         lastTs = ts;

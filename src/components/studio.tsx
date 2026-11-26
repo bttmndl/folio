@@ -88,6 +88,7 @@ export function Studio() {
     onLive: () => {},
     onEvent: () => {},
     onSheet: () => {},
+    onReshape: () => {},
     sheetLocked: () => false,
   });
 
@@ -127,6 +128,12 @@ export function Studio() {
           watch.streak = 0;
         }
       }
+    },
+    onReshape: () => {
+      calibRef.current = [];
+      watchRef.current = { streak: 0, pts: null };
+      setCalib([]);
+      setLive("Looking for the keyboard.");
     },
     sheetLocked: () => calibRef.current.length === 4,
   };
