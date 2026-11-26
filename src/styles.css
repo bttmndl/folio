@@ -1,0 +1,239 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #141311;
+  --color-paper: #f3efe4;
+  --color-brass: #e09a3e;
+  --color-brass-ink: #2a1c08;
+  --color-graphite: #242320;
+  --color-raised: #312f2a;
+  --color-line: #3d3a34;
+  --color-mist: #a39c90;
+  --color-ink-soft: #5e594f;
+  --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --radius-card: 1.15rem;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    margin: 0;
+    background: var(--color-ink);
+    color: var(--color-paper);
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+  h1,
+  h2 {
+    text-wrap: balance;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+  ::selection {
+    background: var(--color-brass);
+    color: var(--color-brass-ink);
+  }
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+.studio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.pane {
+  min-width: 0;
+}
+.sheet-scroll-wrap {
+  width: 100%;
+  overflow: auto;
+}
+.sheet-scroll {
+  width: max(52rem, 100%);
+  padding: 1.25rem 1.25rem 1.75rem;
+}
+
+@media (min-width: 64rem) {
+  .app-shell {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .studio {
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) 23rem;
+  }
+  .pane {
+    min-height: 0;
+    overflow: auto;
+  }
+  .sheet-scroll-wrap {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+.mirror-x {
+  transform: scaleX(-1);
+}
+
+.board {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 24.2 / 7.72;
+  container-type: size;
+  user-select: none;
+  touch-action: manipulation;
+}
+.board-desk {
+  background: var(--color-graphite);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+}
+.board-print {
+  background: var(--color-paper);
+  border: 1px solid var(--color-ink);
+  color: var(--color-ink);
+}
+
+.keycap {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.keyface {
+  position: absolute;
+  inset: 7%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-radius: 0.35em;
+  border: 1px solid var(--color-line);
+  background: var(--color-raised);
+  color: var(--color-paper);
+  font-size: clamp(8px, 1.35cqw, 15px);
+  line-height: 1.05;
+  box-shadow: inset 0 -2px 0 rgb(0 0 0 / 0.35);
+}
+.board-desk .keycap[data-on="true"] .keyface,
+.board-desk .keycap:active .keyface {
+  background: var(--color-brass);
+  color: var(--color-brass-ink);
+  border-color: var(--color-brass);
+}
+.board-print .keyface {
+  background: white;
+  color: var(--color-ink);
+  border-color: var(--color-ink);
+  box-shadow: none;
+}
+.keycap-main {
+  font-weight: 600;
+  padding-bottom: 8%;
+}
+.keycap-sub {
+  position: absolute;
+  top: 8%;
+  left: 10%;
+  font-size: 0.72em;
+  opacity: 0.7;
+}
+.keycap:focus-visible .keyface {
+  outline: 2px solid var(--color-brass);
+  outline-offset: 1px;
+}
+
+.mark {
+  position: absolute;
+  width: 2.6%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: clamp(8px, 1.05cqw, 13px);
+  color: var(--color-paper);
+  z-index: 2;
+  pointer-events: none;
+}
+.board-print .mark {
+  color: var(--color-ink);
+}
+.mark::before,
+.mark::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+}
+.mark::before {
+  width: 160%;
+  height: 1px;
+}
+.mark::after {
+  height: 160%;
+  width: 1px;
+}
+
+.doc {
+  resize: none;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  padding: 1rem 1.05rem;
+  outline: none;
+}
+.doc::placeholder {
+  color: var(--color-ink-soft);
+}
+
+input.depth {
+  accent-color: var(--color-brass);
+  width: 9rem;
+}
+
+.print-sheet {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 10mm;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-sheet {
+    display: block !important;
+    background: white;
+    color: var(--color-ink);
+  }
+  body {
+    background: white !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keyface {
+    transition: none;
+  }
+}
