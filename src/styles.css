@@ -299,6 +299,10 @@
   font-weight: 700;
 }
 
+.cam-piano {
+  top: calc(max(0.75rem, env(safe-area-inset-top)) + 6.9rem);
+}
+
 .cam-status {
   position: absolute;
   z-index: 4;

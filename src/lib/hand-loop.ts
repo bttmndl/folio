@@ -2,7 +2,8 @@ import { applyH, type Pt } from "./homography";
 import { hitTest, KEYS, type KeySpec } from "./keyboard-layout";
 import { previewPathPrefix } from "./preview-path-prefix";
 import { findSheet } from "./sheet-find";
-import { chordLabel, createGuitarPlay, drawGuitar, updateGuitar, type GuitarPlay, type Pluck, type Point, type TrackedHand } from "./guitar";
+import { chordLabel, createGuitarPlay, drawGuitar, updateGuitar, type GuitarPlay, type Point, type TrackedHand } from "./guitar";
+import { createPianoPlay, drawPiano, noteName, updatePiano, type PianoPlay } from "./piano";
 
 export type PressStyle = "tap" | "rest";
 export type PressDirection = "above" | "facing";
@@ -20,8 +21,8 @@ export type TrackerBridge = {
   onEvent: (id: string, phase: "down" | "up") => void;
   onSheet: (points: Pt[] | null) => void;
   onReshape: () => void;
-  onGuitar: (plucks: Pluck[], label: string) => void;
-  getInstrument: () => "keys" | "guitar";
+  onGuitar: (plucks: { midi: number; velocity: number }[], label: string) => void;
+  getInstrument: () => "keys" | "guitar" | "piano";
   getMirrored: () => boolean;
   sheetLocked: () => boolean;
 };
@@ -189,6 +190,7 @@ export async function startHandLoop(opts: {
     };
 
     const guitar = createGuitarPlay();
+    const piano = createPianoPlay();
     let poseMarks: LM[] | null = null;
     let seenW = 0;
     let seenH = 0;
@@ -213,7 +215,7 @@ export async function startHandLoop(opts: {
         lastFrame = now;
         try {
           const bridge = opts.bridge.current;
-          if (bridge.getInstrument() !== "guitar" && !bridge.sheetLocked() && probeCtx && probeTick++ % 3 === 0) {
+          if (bridge.getInstrument() === "keys" && !bridge.sheetLocked() && probeCtx && probeTick++ % 3 === 0) {
             const long = Math.max(video.videoWidth, video.videoHeight);
             const scale = 240 / long;
             const pw = Math.max(32, Math.round(video.videoWidth * scale));
@@ -242,6 +244,7 @@ export async function startHandLoop(opts: {
             setDown,
             live,
             guitar,
+            piano,
             pose: poseMarks,
             handed: result.handedness ?? [],
             bridge: opts.bridge,
@@ -270,6 +273,7 @@ function paint(
     setDown: (finger: string, keyId: string | null) => void;
     live: (text: string) => void;
     guitar: GuitarPlay;
+    piano: PianoPlay;
     pose: LM[] | null;
     handed: { categoryName?: string }[][];
     bridge: { current: TrackerBridge };
@@ -316,6 +320,27 @@ function paint(
         : ctx.guitar.hold
           ? "Sweep a fingertip across the strings."
           : "Step back so your shoulders and hands are in frame.",
+    );
+    return;
+  }
+  if (b.getInstrument() === "piano") {
+    const played = updatePiano(
+      ctx.piano,
+      hands.map((points) => ({ points })),
+      performance.now(),
+      w,
+      h,
+    );
+    drawPiano(g, ctx.piano, w, h);
+    for (const hand of hands) drawHand(g, hand, w, h);
+    const label = played.length ? played.map((note) => noteName(note.midi)).join(" ") : ctx.piano.ready ? "Press a key" : "Show your hand";
+    b.onGuitar(played, label);
+    ctx.live(
+      played.length
+        ? played.map((note) => noteName(note.midi)).join(" ")
+        : ctx.piano.ready
+          ? "The keys sit under your fingers. Press one."
+          : "Show a hand so the piano can sit under it.",
     );
     return;
   }

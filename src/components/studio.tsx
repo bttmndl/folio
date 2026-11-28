@@ -13,6 +13,7 @@ import {
   type Phase,
 } from "@/lib/editor";
 import { startHandLoop, type PressDirection, type PressStyle, type TrackerBridge } from "@/lib/hand-loop";
+import { playPiano } from "@/lib/piano-synth";
 import { playPluck } from "@/lib/guitar-synth";
 import { solveHomography, type Pt } from "@/lib/homography";
 import { KEY_BOUNDS, KEYS, keyById, type KeySpec } from "@/lib/keyboard-layout";
@@ -44,7 +45,7 @@ export function Studio() {
   const [camLoading, setCamLoading] = useState(false);
   const [camAttempt, setCamAttempt] = useState(0);
   const [hydrated, setHydrated] = useState(false);
-  const [instrument, setInstrument] = useState<"keys" | "guitar">("keys");
+  const [instrument, setInstrument] = useState<"keys" | "guitar" | "piano">("keys");
   const [chord, setChord] = useState("Open strings");
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -158,7 +159,8 @@ export function Studio() {
       audio.gain.gain.value = Math.max(audio.volume, 0.85);
       for (const pluck of plucks) {
         try {
-          playPluck(audio.ctx, audio.gain, pluck.midi, pluck.velocity);
+          if (instrumentRef.current === "piano") playPiano(audio.ctx, audio.gain, pluck.midi, pluck.velocity);
+          else playPluck(audio.ctx, audio.gain, pluck.midi, pluck.velocity);
         } catch {
           /* keep listening if one note fails to start */
         }
@@ -448,6 +450,26 @@ export function Studio() {
           >
             {instrument === "guitar" ? "Keys" : "Guitar"}
           </button>
+          <button
+            type="button"
+            className="cam-mode cam-piano"
+            onClick={() => {
+              primeAudio();
+              const opening = instrument !== "piano";
+              setInstrument(opening ? "piano" : "keys");
+              if (!opening) return;
+              const audio = audioRef.current;
+              [60, 64, 67, 72].forEach((midi, index) => {
+                window.setTimeout(() => {
+                  if (!audio.ctx || !audio.gain) return;
+                  audio.gain.gain.value = Math.max(audio.volume, 0.85);
+                  playPiano(audio.ctx, audio.gain, midi, 0.85);
+                }, index * 90);
+              });
+            }}
+          >
+            {instrument === "piano" ? "Keys" : "Piano"}
+          </button>
           {camError ? (
             <div className="cam-status">
               <p className="max-w-xs text-sm leading-relaxed">{camError}</p>
@@ -457,7 +479,7 @@ export function Studio() {
             </div>
           ) : (
             <p className="cam-live" aria-live="polite">
-              {instrument === "guitar" ? live : found ? status : "Looking for the keyboard"}
+              {instrument === "keys" ? (found ? status : "Looking for the keyboard") : live}
             </p>
           )}
           {!camError ? (
@@ -466,8 +488,8 @@ export function Studio() {
                 ref={docRef}
                 readOnly
                 className="doc cam-type"
-                value={instrument === "guitar" ? chord : engine.value}
-                placeholder={instrument === "guitar" ? "Open strings" : "Words show up here."}
+                value={instrument === "keys" ? engine.value : chord}
+                placeholder={instrument === "piano" ? "Press a key" : instrument === "guitar" ? "Open strings" : "Words show up here."}
                 aria-label="Typed text"
               />
             </div>
