@@ -150,8 +150,12 @@ export function Studio() {
         chordRef.current = label;
         setChord(label);
       }
+      if (!plucks.length) return;
+      primeAudio();
       const audio = audioRef.current;
-      if (!plucks.length || audio.muted || !audio.ctx || !audio.gain) return;
+      if (!audio.ctx || !audio.gain) return;
+      if (audio.ctx.state === "suspended") void audio.ctx.resume();
+      audio.gain.gain.value = audio.volume || 0.8;
       for (const pluck of plucks) playPluck(audio.ctx, audio.gain, pluck.midi, pluck.velocity);
     },
     getInstrument: () => instrumentRef.current,

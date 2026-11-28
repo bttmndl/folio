@@ -25,13 +25,13 @@ export type GuitarPlay = {
   vibe: number[];
   hold: Hold | null;
   seen: number;
+  fingers: { x: number; y: number; hot: boolean }[];
 };
 
 const FRETS = 12;
 const OPENS = [40, 45, 50, 55, 59, 64];
 const NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 const SCALE_END = 1 - 2 ** (-FRETS / 12);
-const FRET_TIPS = [8, 12, 16, 20];
 
 export function createGuitarPlay(): GuitarPlay {
   return {
@@ -42,6 +42,7 @@ export function createGuitarPlay(): GuitarPlay {
     vibe: [0, 0, 0, 0, 0, 0],
     hold: null,
     seen: 0,
+    fingers: [],
   };
 }
 
@@ -292,6 +293,26 @@ function blitStrip(
   g.restore();
 }
 
+function segmentsCross(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): boolean {
+  const rx = bx - ax;
+  const ry = by - ay;
+  const sx = dx - cx;
+  const sy = dy - cy;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-4) return false;
+  const t = ((cx - ax) * sy - (cy - ay) * sx) / den;
+  const u = ((cx - ax) * ry - (cy - ay) * rx) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+function pointSegDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const denom = abx * abx + aby * aby || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * abx + (py - ay) * aby) / denom));
+  return Math.hypot(px - (ax + abx * t), py - (ay + aby * t));
+}
+
 export function updateGuitar(
   play: GuitarPlay,
   hands: TrackedHand[],
@@ -312,8 +333,11 @@ export function updateGuitar(
   if (!hold || width < 2 || height < 2) return plucks;
   const frame = frameOf(hold, width, height);
   const seen = new Set<string>();
-  const left = hands.find((hand) => hand.side === "Left");
-  const right = hands.find((hand) => hand.side === "Right");
+  play.fingers = [];
+  const lines = STRING_V.map((v) => ({
+    a: project(frame, IMG_NUT, v),
+    b: project(frame, IMG_BRIDGE, v),
+  }));
 
   const track = (id: string, p: Point) => {
     seen.add(id);
@@ -322,66 +346,93 @@ export function updateGuitar(
     return prev;
   };
 
-  if (left) {
-    for (const tipIndex of FRET_TIPS) {
-      const tip = left.points[tipIndex];
-      if (!tip) continue;
-      track(`L${tipIndex}`, tip);
-      const uv = toImage(frame, tip.x * width, tip.y * height);
-      if (uv.u < IMG_NUT - 0.02 || uv.u > IMG_JOINT + 0.03) continue;
-      let best = 0;
-      let dist = Infinity;
-      STRING_V.forEach((v, i) => {
-        const d = Math.abs(uv.v - v);
-        if (d < dist) {
-          dist = d;
-          best = i;
-        }
-      });
-      if (dist > 0.028) continue;
-      const neckT = (uv.u - IMG_NUT) / (IMG_JOINT - IMG_NUT);
-      play.frets[best] = fretAt(Math.min(1, Math.max(0, neckT)));
-      play.touched[best] = now;
-    }
-  }
+  const fretHand = hands
+    .filter((hand) => hand.points[0])
+    .sort((a, b) => {
+      const au = toImage(frame, a.points[0]!.x * width, a.points[0]!.y * height).u;
+      const bu = toImage(frame, b.points[0]!.x * width, b.points[0]!.y * height).u;
+      return au - bu;
+    })[0];
 
-  if (right) {
-    for (const tipIndex of [8, 12, 16]) {
-      const tip = right.points[tipIndex];
+  for (let hi = 0; hi < hands.length; hi++) {
+    const hand = hands[hi]!;
+    const fretting = hand === fretHand;
+    for (const tipIndex of [4, 8, 12, 16, 20]) {
+      const tip = hand.points[tipIndex];
       if (!tip) continue;
-      const prev = track(`R${tipIndex}`, tip);
-      if (!prev) continue;
-      const ax = (tip.x - prev.x) * width;
-      const ay = (tip.y - prev.y) * height;
-      const speed = Math.hypot(ax, ay);
-      if (speed < 4) continue;
-      const steps = Math.max(1, Math.min(6, Math.ceil(speed / 10)));
-      for (let step = 1; step <= steps; step++) {
-        const a = toImage(
-          frame,
-          (prev.x + (tip.x - prev.x) * ((step - 1) / steps)) * width,
-          (prev.y + (tip.y - prev.y) * ((step - 1) / steps)) * height,
-        );
-        const b = toImage(
-          frame,
-          (prev.x + (tip.x - prev.x) * (step / steps)) * width,
-          (prev.y + (tip.y - prev.y) * (step / steps)) * height,
-        );
-        STRING_V.forEach((v, i) => {
-          if ((a.v - v) * (b.v - v) > 0) return;
-          const t = (v - a.v) / (b.v - a.v || 1);
-          const u = a.u + (b.u - a.u) * t;
-          if (u < 0.57 || u > 0.78) return;
-          if (now - play.rung[i]! < 70) return;
-          play.rung[i] = now;
-          play.vibe[i] = 1;
-          plucks.push({
-            string: i,
-            midi: midiFor(i, play.frets[i] ?? 0),
-            velocity: Math.max(0.4, Math.min(1, speed / 22)),
+      const id = `${hi}:${tipIndex}`;
+      const prev = track(id, tip);
+      const px = tip.x * width;
+      const py = tip.y * height;
+      const uv = toImage(frame, px, py);
+      let hot = false;
+      if (fretting && tipIndex !== 4 && prev) {
+        const speed = Math.hypot((tip.x - prev.x) * width, (tip.y - prev.y) * height);
+        if (speed < 14 && uv.u >= IMG_NUT - 0.03 && uv.u <= IMG_JOINT + 0.05) {
+          let best = 0;
+          let dist = Infinity;
+          STRING_V.forEach((v, i) => {
+            const d = Math.abs(uv.v - v);
+            if (d < dist) {
+              dist = d;
+              best = i;
+            }
           });
-        });
+          if (dist < 0.05) {
+            play.frets[best] = fretAt(Math.min(1, Math.max(0, (uv.u - IMG_NUT) / (IMG_JOINT - IMG_NUT))));
+            play.touched[best] = now;
+            hot = true;
+          }
+        }
       }
+      if (prev) {
+        const x0 = prev.x * width;
+        const y0 = prev.y * height;
+        const speed = Math.hypot(px - x0, py - y0);
+        if (speed > 5) {
+          lines.forEach((line, i) => {
+            const crossed = segmentsCross(x0, y0, px, py, line.a.x, line.a.y, line.b.x, line.b.y);
+            const near = pointSegDist(px, py, line.a.x, line.a.y, line.b.x, line.b.y);
+            const was = pointSegDist(x0, y0, line.a.x, line.a.y, line.b.x, line.b.y);
+            if (!crossed && !(near < 28 && was > 36)) return;
+            if (now - play.rung[i]! < 55) return;
+            play.rung[i] = now;
+            play.vibe[i] = 1;
+            hot = true;
+            plucks.push({
+              string: i,
+              midi: midiFor(i, play.frets[i] ?? 0),
+              velocity: Math.max(0.45, Math.min(1, speed / 18)),
+            });
+          });
+          const span = Math.hypot(frame.bx - frame.nutx, frame.by - frame.nuty) || 1;
+          const along = Math.abs((px - x0) * (frame.bx - frame.nutx) + (py - y0) * (frame.by - frame.nuty)) / span;
+          const across = Math.abs((px - x0) * frame.px + (py - y0) * frame.py);
+          const overGuitar = uv.u > IMG_NUT - 0.04 && uv.u < IMG_BRIDGE + 0.06 && uv.v > 0.28 && uv.v < 0.72;
+          if (overGuitar && across > 9 && across > along * 0.45) {
+            let best = 0;
+            let dist = Infinity;
+            STRING_V.forEach((v, i) => {
+              const d = Math.abs(uv.v - v);
+              if (d < dist) {
+                dist = d;
+                best = i;
+              }
+            });
+            if (dist < 0.12 && now - play.rung[best]! > 120) {
+              play.rung[best] = now;
+              play.vibe[best] = 1;
+              hot = true;
+              plucks.push({
+                string: best,
+                midi: midiFor(best, play.frets[best] ?? 0),
+                velocity: Math.max(0.5, Math.min(1, speed / 16)),
+              });
+            }
+          }
+        }
+      }
+      play.fingers.push({ x: px, y: py, hot });
     }
   }
 
@@ -436,6 +487,13 @@ export function drawGuitar(g: CanvasRenderingContext2D, play: GuitarPlay, width:
       }
       g.stroke();
     });
+  }
+  for (const finger of play.fingers) {
+    g.beginPath();
+    g.arc(finger.x, finger.y, finger.hot ? 14 : 8, 0, Math.PI * 2);
+    g.strokeStyle = finger.hot ? "rgba(255, 214, 120, 0.95)" : "rgba(255,255,255,0.75)";
+    g.lineWidth = finger.hot ? 3 : 1.5;
+    g.stroke();
   }
   g.restore();
 }

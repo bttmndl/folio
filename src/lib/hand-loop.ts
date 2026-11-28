@@ -309,10 +309,13 @@ function paint(
     drawGuitar(g, ctx.guitar, w, h, performance.now());
     for (const hand of hands) drawHand(g, hand, w, h);
     b.onGuitar(plucks, ctx.guitar.hold ? chordLabel(ctx.guitar.frets) : "Step into frame");
+    const notes = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
     ctx.live(
-      ctx.guitar.hold
-        ? "Left hand frets the neck. Right hand strums."
-        : "Step back so your shoulders and hands are in frame.",
+      plucks.length
+        ? plucks.map((pluck) => notes[pluck.midi % 12]).join(" ")
+        : ctx.guitar.hold
+          ? "Sweep a fingertip across the strings."
+          : "Step back so your shoulders and hands are in frame.",
     );
     return;
   }
