@@ -17,6 +17,9 @@ export type PianoPlay = {
   last: Map<string, Point>;
   held: Map<string, number>;
   down: Set<number>;
+  aimed: Set<number>;
+  aim: Map<string, number>;
+  aimAt: Map<string, number>;
   tap: { t: number; x: number; y: number } | null;
   pinch: { dist: number; span: number } | null;
 };
@@ -25,7 +28,7 @@ const START = 48;
 const WHITES = 15;
 const STEPS = [0, 2, 4, 5, 7, 9, 11];
 const NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
-const TIPS = [8, 12, 16, 20];
+const TIPS = [8, 12, 16];
 
 export function createPianoPlay(): PianoPlay {
   return {
@@ -38,6 +41,9 @@ export function createPianoPlay(): PianoPlay {
     last: new Map(),
     held: new Map(),
     down: new Set(),
+    aimed: new Set(),
+    aim: new Map(),
+    aimAt: new Map(),
     tap: null,
     pinch: null,
   };
@@ -125,6 +131,30 @@ export function keyAt(board: Board, x: number, y: number): number | null {
   return whiteMidi(index);
 }
 
+function committedKey(board: Board, x: number, y: number, previous: number | undefined): number | null {
+  const raw = keyAt(board, x, y);
+  if (raw == null || previous == null || previous === raw) return raw;
+  const u = localPoint(board, x, y).x;
+  const whiteW = 1 / WHITES;
+  const center = keyCenter(raw);
+  const half = isBlack(raw) ? whiteW * 0.3 : whiteW * 0.5;
+  return Math.abs(u - center) < half * 0.45 ? raw : previous;
+}
+
+function isBlack(midi: number): boolean {
+  const pc = midi % 12;
+  return pc === 1 || pc === 3 || pc === 6 || pc === 8 || pc === 10;
+}
+
+function keyCenter(midi: number): number {
+  const whiteW = 1 / WHITES;
+  for (let i = 0; i < WHITES; i++) {
+    if (whiteMidi(i) === midi) return (i + 0.5) * whiteW;
+    if (hasBlack(i) && whiteMidi(i) + 1 === midi) return (i + 1) * whiteW;
+  }
+  return 0.5;
+}
+
 function handAnchor(hand: Hand): Point | null {
   return hand.points[8] ?? hand.points[0] ?? null;
 }
@@ -170,6 +200,7 @@ export function updatePiano(
   const board = boardOf(play, videoW, videoH, screenW, screenH);
   const seen = new Set<string>();
   play.down = new Set();
+  play.aimed = new Set();
 
   hands.forEach((hand, hi) => {
     const indexTip = hand.points[8];
@@ -206,30 +237,50 @@ export function updatePiano(
       const prev = play.last.get(id);
       play.last.set(id, point);
       if (!play.locked) continue;
+      const filtered = prev
+        ? { x: prev.x * 0.6 + point.x * 0.4, y: prev.y * 0.6 + point.y * 0.4 }
+        : point;
       const prevScreen = prev ? toScreen(prev, videoW, videoH, screenW, screenH) : null;
       const here = toScreen(point, videoW, videoH, screenW, screenH);
-      const midi = keyAt(board, point.x * videoW, point.y * videoH);
+      const midi = committedKey(board, filtered.x * videoW, filtered.y * videoH, play.aim.get(id));
       const dy = prevScreen ? (here.y - prevScreen.y) * screenH : 0;
       const dx = prevScreen ? (here.x - prevScreen.x) * screenW : 0;
-      const dz = prev ? (point.z ?? 0) - (prev.z ?? 0) : 0;
       const was = play.held.get(id);
       if (midi == null) {
+        play.aim.delete(id);
+        play.aimAt.delete(id);
         play.held.delete(id);
         continue;
       }
-      play.down.add(midi);
-      const pressing = !!prev && (dy > 3 || dz > 0.01 || (was !== midi && Math.hypot(dx, dy) > 8));
-      if (was !== midi && pressing) {
+      if (play.aim.get(id) !== midi) {
+        play.aim.set(id, midi);
+        play.aimAt.set(id, now);
+      }
+      play.aimed.add(midi);
+      if (was === midi) {
+        play.down.add(midi);
+        if (dy < -12) play.held.delete(id);
+        continue;
+      }
+      const stableFor = now - (play.aimAt.get(id) ?? now);
+      const cameDown = prevScreen != null && dy > 16 && dy > Math.abs(dx) * 1.25;
+      const freshStrike = was == null && dy > 28 && dy > Math.abs(dx);
+      if (cameDown && (stableFor >= 60 || freshStrike)) {
         play.held.set(id, midi);
-        notes.push({ midi, velocity: Math.max(0.5, Math.min(1, Math.abs(dy) / 16 + 0.5)) });
-      } else if (was === midi) {
-        play.held.set(id, midi);
+        play.down.add(midi);
+        notes.push({ midi, velocity: Math.max(0.55, Math.min(1, dy / 36)) });
       }
     }
   });
 
   for (const id of play.last.keys()) if (!seen.has(id)) play.last.delete(id);
-  for (const id of play.held.keys()) if (!seen.has(id)) play.held.delete(id);
+  for (const id of [...play.held.keys(), ...play.aim.keys()]) {
+    if (!seen.has(id)) {
+      play.held.delete(id);
+      play.aim.delete(id);
+      play.aimAt.delete(id);
+    }
+  }
   return notes;
 }
 
@@ -267,9 +318,10 @@ export function drawPiano(
     const pressed = play.down.has(midi);
     const x = -along / 2 + i * whiteW;
     const y = -across / 2 + (pressed ? 7 : 0);
+    const aimed = play.aimed.has(midi) && !pressed;
     const grad = g.createLinearGradient(x, y, x, y + across);
-    grad.addColorStop(0, pressed ? "#d9d0c2" : "#f4efe6");
-    grad.addColorStop(1, pressed ? "#b7aa98" : "#e4d9c8");
+    grad.addColorStop(0, pressed ? "#d9d0c2" : aimed ? "#fff6df" : "#f4efe6");
+    grad.addColorStop(1, pressed ? "#b7aa98" : aimed ? "#f0e0bc" : "#e4d9c8");
     g.fillStyle = grad;
     g.fillRect(x + 1, y, whiteW - 2, across - (pressed ? 7 : 0));
     g.strokeStyle = "rgba(70, 54, 40, 0.35)";

@@ -41,6 +41,8 @@ test("both hands stretch the piano, a double-tap locks it, then a press plays", 
   const notes = updatePiano(play, [finger(x / 1000, y / 1000)], 680, 1000, 1000, 1000, 1000);
   assert.ok(notes.length >= 1);
   assert.equal(notes[0]!.midi, keyAt(board, x, y));
+  const second = updatePiano(play, [finger(x / 1000, (y + 4) / 1000)], 760, 1000, 1000, 1000, 1000);
+  assert.equal(second.length, 0);
 });
 
 test("rotation keeps the piano on the phone and horizontal", () => {

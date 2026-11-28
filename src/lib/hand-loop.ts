@@ -293,6 +293,9 @@ function paint(
     ctx.piano.last.clear();
     ctx.piano.held.clear();
     ctx.piano.down.clear();
+    ctx.piano.aimed.clear();
+    ctx.piano.aim.clear();
+    ctx.piano.aimAt.clear();
   }
   if (b.getInstrument() === "guitar") {
     const tracked: TrackedHand[] = hands.map((points, index) => {
@@ -356,7 +359,7 @@ function paint(
       played.length
         ? played.map((note) => noteName(note.midi)).join(" ")
         : ctx.piano.locked
-          ? "Locked. Play on the keys. Double-tap to move it again."
+          ? "Locked. Press straight down on one key."
           : "Two hands stretch the piano. Double-tap a finger to lock it.",
     );
     return;
