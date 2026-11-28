@@ -42,26 +42,27 @@ export function playPluck(ctx: AudioContext, dest: AudioNode, midi: number, velo
   }
   const src = ctx.createBufferSource();
   src.buffer = buffer;
-  const body = ctx.createBiquadFilter();
-  body.type = "peaking";
-  body.frequency.value = 196;
-  body.Q.value = 0.8;
-  body.gain.value = 5;
-  const tone = ctx.createBiquadFilter();
-  tone.type = "lowpass";
-  tone.frequency.value = 1800 + velocity * 2200;
-  tone.Q.value = 0.6;
   const amp = ctx.createGain();
   const t = ctx.currentTime;
-  const level = 0.18 + velocity * 0.42;
+  const level = 0.55 + velocity * 0.4;
   amp.gain.setValueAtTime(0.0001, t);
-  amp.gain.exponentialRampToValueAtTime(level, t + 0.006);
-  amp.gain.exponentialRampToValueAtTime(level * 0.45, t + 0.18);
-  amp.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
-  src.connect(body);
-  body.connect(tone);
-  tone.connect(amp);
+  amp.gain.exponentialRampToValueAtTime(level, t + 0.004);
+  amp.gain.exponentialRampToValueAtTime(level * 0.4, t + 0.12);
+  amp.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+  src.connect(amp);
   amp.connect(dest);
   src.start(t);
-  src.stop(t + 2.5);
+  src.stop(t + 2);
+
+  const pick = ctx.createOscillator();
+  pick.type = "triangle";
+  pick.frequency.setValueAtTime(midiToFreq(midi), t);
+  const pickGain = ctx.createGain();
+  pickGain.gain.setValueAtTime(0.0001, t);
+  pickGain.gain.exponentialRampToValueAtTime(0.28 + velocity * 0.22, t + 0.004);
+  pickGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+  pick.connect(pickGain);
+  pickGain.connect(dest);
+  pick.start(t);
+  pick.stop(t + 0.4);
 }

@@ -155,8 +155,14 @@ export function Studio() {
       const audio = audioRef.current;
       if (!audio.ctx || !audio.gain) return;
       if (audio.ctx.state === "suspended") void audio.ctx.resume();
-      audio.gain.gain.value = audio.volume || 0.8;
-      for (const pluck of plucks) playPluck(audio.ctx, audio.gain, pluck.midi, pluck.velocity);
+      audio.gain.gain.value = Math.max(audio.volume, 0.85);
+      for (const pluck of plucks) {
+        try {
+          playPluck(audio.ctx, audio.gain, pluck.midi, pluck.velocity);
+        } catch {
+          /* keep listening if one note fails to start */
+        }
+      }
     },
     getInstrument: () => instrumentRef.current,
     getMirrored: () => mirror,
@@ -427,7 +433,17 @@ export function Studio() {
             className="cam-mode"
             onClick={() => {
               primeAudio();
-              setInstrument((current) => (current === "guitar" ? "keys" : "guitar"));
+              const opening = instrument !== "guitar";
+              setInstrument(opening ? "guitar" : "keys");
+              if (!opening) return;
+              const audio = audioRef.current;
+              [40, 45, 50, 55, 59, 64].forEach((midi, index) => {
+                window.setTimeout(() => {
+                  if (!audio.ctx || !audio.gain) return;
+                  audio.gain.gain.value = Math.max(audio.volume, 0.85);
+                  playPluck(audio.ctx, audio.gain, midi, 0.9);
+                }, index * 80);
+              });
             }}
           >
             {instrument === "guitar" ? "Keys" : "Guitar"}

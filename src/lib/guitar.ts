@@ -106,21 +106,7 @@ function ok(p: Point | undefined): p is Point {
 export function solveHold(pose: Point[] | null, hands: TrackedHand[]): Hold | null {
   const left = hands.find((hand) => hand.side === "Left");
   const right = hands.find((hand) => hand.side === "Right");
-  const tips = [8, 12, 16, 20].map((i) => left?.points[i]).filter((p) => ok(p));
-  const indexMcp = ok(left?.points[5]) ? left?.points[5] : undefined;
-  const pinkyMcp = ok(left?.points[17]) ? left?.points[17] : undefined;
-  const grip =
-    tips.length >= 2
-      ? tips.reduce((sum, p) => add(sum, p), { x: 0, y: 0 })
-      : indexMcp
-        ? indexMcp
-        : ok(pose?.[15])
-          ? pose?.[15]
-          : undefined;
-  if (grip && tips.length >= 2) {
-    grip.x /= tips.length;
-    grip.y /= tips.length;
-  }
+  const leftWrist = ok(left?.points[0]) ? left.points[0] : ok(pose?.[15]) ? pose?.[15] : undefined;
   const rightWrist = ok(right?.points[0]) ? right?.points[0] : ok(pose?.[16]) ? pose?.[16] : undefined;
   const leftShoulder = ok(pose?.[11]) ? pose?.[11] : undefined;
   const rightShoulder = ok(pose?.[12]) ? pose?.[12] : undefined;
@@ -129,46 +115,42 @@ export function solveHold(pose: Point[] | null, hands: TrackedHand[]): Hold | nu
   const span =
     leftShoulder && rightShoulder
       ? Math.max(0.16, len(sub(leftShoulder, rightShoulder)))
-      : grip && rightWrist
-        ? Math.max(0.18, len(sub(grip, rightWrist)) * 0.62)
+      : leftWrist && rightWrist
+        ? Math.max(0.18, len(sub(leftWrist, rightWrist)) * 0.62)
         : 0.32;
 
   let body: Point | null = null;
   if (rightHip && rightShoulder) body = mix(rightHip, rightShoulder, 0.5);
   else if (rightWrist) body = { x: rightWrist.x, y: rightWrist.y + span * 0.22 };
-  else if (grip) body = { x: grip.x - span * 0.7, y: grip.y + span * 0.35 };
+  else if (leftWrist) body = { x: leftWrist.x - span * 0.7, y: leftWrist.y + span * 0.35 };
   if (!body) return null;
   if (leftShoulder && rightShoulder) {
     const chest = mix(leftShoulder, rightShoulder, 0.58);
     body = mix(body, chest, 0.22);
   }
 
-  const towardNut = grip ? norm(sub(grip, body)) : { x: 0.86, y: -0.51 };
-  let axis = towardNut;
-  if (indexMcp && pinkyMcp && len(sub(indexMcp, pinkyMcp)) > 0.015) {
-    let anatomical = norm(sub(indexMcp, pinkyMcp));
-    if (dot(anatomical, towardNut) < 0) anatomical = mul(anatomical, -1);
-    axis = norm(add(mul(anatomical, 0.7), mul(towardNut, 0.3)));
+  if (!rightHip || !rightShoulder) {
+    return {
+      nut: { x: 0.84, y: 0.4 },
+      joint: { x: 0.56, y: 0.48 },
+      bridge: { x: 0.28, y: 0.56 },
+      tail: { x: 0.1, y: 0.62 },
+      perp: { x: 0.12, y: -0.99 },
+      neckHalf: 0.045,
+      bodyHalf: 0.18,
+    };
   }
-  const scale = span * 1.72;
-  let bridge = add(body, mul(axis, -span * 0.08));
-  let nut = add(bridge, mul(axis, scale));
-  if (grip) {
-    const planted = add(bridge, mul(axis, scale * 0.75));
-    const shift = sub(grip, planted);
-    nut = add(nut, shift);
-    bridge = add(bridge, shift);
-  }
+
+  const towardNut = norm(sub(leftShoulder ?? { x: body.x + span, y: body.y - span * 0.65 }, body));
+  const axis = towardNut;
+  const scale = span * 1.65;
+  const bridge = add(body, mul(axis, -span * 0.06));
+  const nut = add(bridge, mul(axis, scale));
   const joint = lerp(nut, bridge, 0.5);
   const tail = add(bridge, mul(norm(sub(bridge, nut)), scale * 0.42));
   let perp = { x: -axis.y, y: axis.x };
-  if (grip && tips.length >= 2 && indexMcp) {
-    const curl = norm(sub(grip, indexMcp));
-    if (dot(perp, curl) > 0) perp = mul(perp, -1);
-  } else {
-    const up = leftShoulder && leftHip ? norm(sub(leftShoulder, leftHip)) : { x: 0, y: -1 };
-    if (dot(perp, up) < 0) perp = mul(perp, -1);
-  }
+  const up = leftShoulder && leftHip ? norm(sub(leftShoulder, leftHip)) : { x: 0, y: -1 };
+  if (dot(perp, up) < 0) perp = mul(perp, -1);
 
   return { nut, joint, bridge, tail, perp, neckHalf: span * 0.05, bodyHalf: span * 0.42 };
 }
@@ -176,7 +158,7 @@ export function solveHold(pose: Point[] | null, hands: TrackedHand[]): Hold | nu
 function smoothHold(prev: Hold | null, next: Hold): Hold {
   if (!prev) return next;
   const jump = len(sub(prev.nut, next.nut));
-  const a = jump > 0.22 ? 0.45 : 0.72;
+  const a = jump > 0.25 ? 0.2 : 0.14;
   const s = (p: Point, n: Point) => mix(p, n, a);
   let perp = norm(s(prev.perp, next.perp));
   if (dot(perp, prev.perp) < 0) perp = mul(perp, -1);
@@ -357,7 +339,7 @@ export function updateGuitar(
   for (let hi = 0; hi < hands.length; hi++) {
     const hand = hands[hi]!;
     const fretting = hand === fretHand;
-    for (const tipIndex of [4, 8, 12, 16, 20]) {
+    for (const tipIndex of [0, 4, 8, 12, 16, 20]) {
       const tip = hand.points[tipIndex];
       if (!tip) continue;
       const id = `${hi}:${tipIndex}`;
@@ -389,12 +371,12 @@ export function updateGuitar(
         const x0 = prev.x * width;
         const y0 = prev.y * height;
         const speed = Math.hypot(px - x0, py - y0);
-        if (speed > 5) {
+        if (speed > 3) {
           lines.forEach((line, i) => {
             const crossed = segmentsCross(x0, y0, px, py, line.a.x, line.a.y, line.b.x, line.b.y);
             const near = pointSegDist(px, py, line.a.x, line.a.y, line.b.x, line.b.y);
             const was = pointSegDist(x0, y0, line.a.x, line.a.y, line.b.x, line.b.y);
-            if (!crossed && !(near < 28 && was > 36)) return;
+            if (!crossed && !(near < 80 && was > near + 8)) return;
             if (now - play.rung[i]! < 55) return;
             play.rung[i] = now;
             play.vibe[i] = 1;
