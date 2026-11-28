@@ -285,6 +285,15 @@ function paint(
   const h = canvas.height;
   g.clearRect(0, 0, w, h);
   const b = ctx.bridge.current;
+  if (b.getInstrument() !== "piano" && ctx.piano.ready) {
+    ctx.piano.ready = false;
+    ctx.piano.locked = false;
+    ctx.piano.tap = null;
+    ctx.piano.pinch = null;
+    ctx.piano.last.clear();
+    ctx.piano.held.clear();
+    ctx.piano.down.clear();
+  }
   if (b.getInstrument() === "guitar") {
     const tracked: TrackedHand[] = hands.map((points, index) => {
       const hinted = ctx.handed[index]?.[0]?.categoryName;
@@ -324,23 +333,31 @@ function paint(
     return;
   }
   if (b.getInstrument() === "piano") {
+    const screenW = typeof window === "undefined" ? w : window.innerWidth || w;
+    const screenH = typeof window === "undefined" ? h : window.innerHeight || h;
     const played = updatePiano(
       ctx.piano,
       hands.map((points) => ({ points })),
       performance.now(),
       w,
       h,
+      screenW,
+      screenH,
     );
-    drawPiano(g, ctx.piano, w, h);
+    drawPiano(g, ctx.piano, w, h, screenW, screenH);
     for (const hand of hands) drawHand(g, hand, w, h);
-    const label = played.length ? played.map((note) => noteName(note.midi)).join(" ") : ctx.piano.ready ? "Press a key" : "Show your hand";
+    const label = played.length
+      ? played.map((note) => noteName(note.midi)).join(" ")
+      : ctx.piano.locked
+        ? "Locked"
+        : "Pinch to size";
     b.onGuitar(played, label);
     ctx.live(
       played.length
         ? played.map((note) => noteName(note.midi)).join(" ")
-        : ctx.piano.ready
-          ? "The keys sit under your fingers. Press one."
-          : "Show a hand so the piano can sit under it.",
+        : ctx.piano.locked
+          ? "Locked. Play on the keys. Double-tap to move it again."
+          : "Two hands stretch the piano. Double-tap a finger to lock it.",
     );
     return;
   }
